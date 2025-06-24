@@ -30,8 +30,8 @@ describe("checkContainsTrigger", () => {
           triggerPhrase: "/claude",
           assigneeTrigger: "",
           directPrompt: "Fix the bug in the login form",
-          allowedTools: "",
-          disallowedTools: "",
+          allowedTools: [],
+          disallowedTools: [],
           customInstructions: "",
         },
       });
@@ -56,8 +56,8 @@ describe("checkContainsTrigger", () => {
           triggerPhrase: "/claude",
           assigneeTrigger: "",
           directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
+          allowedTools: [],
+          disallowedTools: [],
           customInstructions: "",
         },
       });
@@ -87,6 +87,11 @@ describe("checkContainsTrigger", () => {
         ...mockIssueAssignedContext,
         payload: {
           ...mockIssueAssignedContext.payload,
+          assignee: {
+            ...(mockIssueAssignedContext.payload as IssuesAssignedEvent)
+              .assignee,
+            login: "otherUser",
+          },
           issue: {
             ...(mockIssueAssignedContext.payload as IssuesAssignedEvent).issue,
             assignee: {
@@ -228,8 +233,8 @@ describe("checkContainsTrigger", () => {
           triggerPhrase: "@claude",
           assigneeTrigger: "",
           directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
+          allowedTools: [],
+          disallowedTools: [],
           customInstructions: "",
         },
       });
@@ -255,8 +260,8 @@ describe("checkContainsTrigger", () => {
           triggerPhrase: "@claude",
           assigneeTrigger: "",
           directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
+          allowedTools: [],
+          disallowedTools: [],
           customInstructions: "",
         },
       });
@@ -282,8 +287,8 @@ describe("checkContainsTrigger", () => {
           triggerPhrase: "@claude",
           assigneeTrigger: "",
           directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
+          allowedTools: [],
+          disallowedTools: [],
           customInstructions: "",
         },
       });

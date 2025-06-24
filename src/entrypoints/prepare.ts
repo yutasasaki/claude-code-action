@@ -59,51 +59,14 @@ async function run() {
       repository: `${context.repository.owner}/${context.repository.repo}`,
       prNumber: context.entityNumber.toString(),
       isPR: context.isPR,
+      triggerUsername: context.actor,
     });
 
     // Step 8: Setup branch
     const branchInfo = await setupBranch(octokit, githubData, context);
 
-    // Step 9: Determine the correct comment ID to use
-    let finalCommentId = commentId;
-    
-    // If we created a new branch for an issue and there's a PR, create a new comment on the PR
-    if (branchInfo.claudeBranch && !context.isPR) {
-      // Check if a PR exists for this branch
-      try {
-        const { data: prs } = await octokit.rest.pulls.list({
-          owner: context.repository.owner,
-          repo: context.repository.repo,
-          head: `${context.repository.owner}:${branchInfo.claudeBranch}`,
-          state: 'open'
-        });
-        
-                 if (prs.length > 0 && prs[0]) {
-           // PR exists, create a new comment on the PR
-           const prNumber = prs[0].number;
-          console.log(`Found PR #${prNumber} for branch ${branchInfo.claudeBranch}, creating new comment`);
-          
-                     const prCommentResponse = await octokit.rest.issues.createComment({
-             owner: context.repository.owner,
-             repo: context.repository.repo,
-             issue_number: prNumber,
-             body: "🤖 Claude is working on this...\n\n<img src=\"https://github.com/user-attachments/assets/5ac382c7-e004-429b-8e35-7feb3e8f9c6f\" width=\"14px\" height=\"14px\" style=\"vertical-align: middle; margin-left: 4px;\" />"
-           });
-          
-          finalCommentId = prCommentResponse.data.id;
-          console.log(`✅ Created new PR comment with ID: ${finalCommentId}`);
-          
-          // Update environment variable for downstream steps
-          core.exportVariable("CLAUDE_COMMENT_ID", finalCommentId.toString());
-        }
-      } catch (error) {
-        console.log(`No PR found for branch ${branchInfo.claudeBranch}, using original comment`);
-      }
-    }
-
-    // Step 10: Update initial comment with branch link (only for issues that created a new branch)
-    if (branchInfo.claudeBranch && finalCommentId === commentId) {
-      // Only update the original comment if we didn't create a new PR comment
+    // Step 9: Update initial comment with branch link (only for issues that created a new branch)
+    if (branchInfo.claudeBranch) {
       await updateTrackingComment(
         octokit,
         context,
@@ -112,25 +75,32 @@ async function run() {
       );
     }
 
-    // Step 11: Create prompt file
+    // Step 10: Create prompt file
     await createPrompt(
-      finalCommentId,
-      branchInfo.defaultBranch,
+      commentId,
+      branchInfo.baseBranch,
       branchInfo.claudeBranch,
       githubData,
       context,
     );
 
     // Step 11: Get MCP configuration
-    const mcpConfig = await prepareMcpConfig(
+    const additionalMcpConfig = process.env.MCP_CONFIG || "";
+    const mcpConfig = await prepareMcpConfig({
       githubToken,
-      context.repository.owner,
-      context.repository.repo,
-      branchInfo.currentBranch,
-    );
+      owner: context.repository.owner,
+      repo: context.repository.repo,
+      branch: branchInfo.currentBranch,
+      additionalMcpConfig,
+      claudeCommentId: commentId.toString(),
+      allowedTools: context.inputs.allowedTools,
+    });
     core.setOutput("mcp_config", mcpConfig);
   } catch (error) {
-    core.setFailed(`Prepare step failed with error: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    core.setFailed(`Prepare step failed with error: ${errorMessage}`);
+    // Also output the clean error message for the action to capture
+    core.setOutput("prepare_error", errorMessage);
     process.exit(1);
   }
 }

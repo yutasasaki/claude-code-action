@@ -4,6 +4,8 @@
 
 **This is a fork of the official Claude Code Action that adds support for OAuth authentication, allowing Claude Max subscribers to use their subscription in GitHub Actions.**
 
+**How to use this fork**: https://grll.bearblog.dev/use-claude-github-actions-with-claude-max/
+
 A general-purpose [Claude Code](https://claude.ai/code) action for GitHub PRs and issues that can answer questions and implement code changes. This action listens for a trigger phrase in comments and activates Claude act on the request. It supports multiple authentication methods including:
 - **OAuth authentication for Claude Max subscribers** (new in this fork)
 - Anthropic direct API
@@ -46,19 +48,24 @@ This fork allows Claude Max subscribers to use their subscription in GitHub Acti
 1. Install the Claude GitHub app to your repository: https://github.com/apps/claude
 2. Get your OAuth credentials from your Claude Max subscription:
    - Make sure you are logged in with your Claude Max in claude with `/login`
-   - Find your access token, refresh token and expires at in `~/.claude/.credentials.json`
+   - Find your access token, refresh token and expires at in `~/.claude/.credentials.json` (ubuntu) or by search claude -> show password in KeyChain (macOS)
 3. Add the following secrets to your repository:
    - `CLAUDE_ACCESS_TOKEN`: Your Claude OAuth access token
    - `CLAUDE_REFRESH_TOKEN`: Your Claude OAuth refresh token
    - `CLAUDE_EXPIRES_AT`: The token expiration timestamp
 4. Use the OAuth configuration in your workflow (see examples below)
 
+## 📚 FAQ
+
+Having issues or questions? Check out our [Frequently Asked Questions](./FAQ.md) for solutions to common problems and detailed explanations of Claude's capabilities and limitations.
+
 ## Usage
 
 Add a workflow file to your repository (e.g., `.github/workflows/claude.yml`):
 
 ```yaml
-name: Claude Assistant
+name: Claude PR Assistant
+
 on:
   issue_comment:
     types: [created]
@@ -70,28 +77,44 @@ on:
     types: [submitted]
 
 jobs:
-  claude-response:
+  claude-code-action:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
     steps:
-      - uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          # Option 1: Direct API (default)
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          fetch-depth: 1
+
+      - name: Run Claude PR Action
+        uses: grll/claude-code-action@beta
+        with:
+          use_oauth: true
+          claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
+          claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
+          claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
           
-          # Option 2: OAuth authentication for Claude Max subscribers
-          # use_oauth: "true"
-          # claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
-          # claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
-          # claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
-          
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          timeout_minutes: "60"
           # Optional: add custom trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
           # Optional: add assignee trigger for issues
           # assignee_trigger: "claude"
-          direct_prompt: |
-            Update the API documentation in README.md to reflect
-            the changes made to the API endpoints in this PR.
+          # Optional: add custom environment variables (YAML format)
+          # claude_env: |
+          #   NODE_ENV: test
+          #   DEBUG: true
+          #   API_URL: https://api.example.com
+          # Optional: limit the number of conversation turns
+          # max_turns: "5"
 ```
 
 ## Inputs
@@ -104,6 +127,7 @@ jobs:
 | `claude_refresh_token`| Claude AI OAuth refresh token (required when use_oauth is true)                                                      | No       | -         |
 | `claude_expires_at`   | Claude AI OAuth token expiration timestamp (required when use_oauth is true)                                         | No       | -         |
 | `direct_prompt`       | Direct prompt for Claude to execute automatically without needing a trigger (for automated workflows)                | No       | -         |
+| `max_turns`           | Maximum number of conversation turns Claude can take (limits back-and-forth exchanges)                               | No       | -         |
 | `timeout_minutes`     | Timeout in minutes for execution                                                                                     | No       | `30`      |
 | `github_token`        | GitHub token for Claude to operate with. **Only include this if you're connecting a custom GitHub app of your own!** | No       | -         |
 | `model`               | Model to use (provider-specific format required for Bedrock/Vertex)                                                  | No       | -         |
@@ -113,12 +137,103 @@ jobs:
 | `allowed_tools`       | Additional tools for Claude to use (the base GitHub tools will always be included)                                   | No       | ""        |
 | `disallowed_tools`    | Tools that Claude should never use                                                                                   | No       | ""        |
 | `custom_instructions` | Additional custom instructions to include in the prompt for Claude                                                   | No       | ""        |
+| `mcp_config`          | Additional MCP configuration (JSON string) that merges with the built-in GitHub MCP servers                          | No       | ""        |
 | `assignee_trigger`    | The assignee username that triggers the action (e.g. @claude). Only used for issue assignment                        | No       | -         |
 | `trigger_phrase`      | The trigger phrase to look for in comments, issue/PR bodies, and issue titles                                        | No       | `@claude` |
+| `claude_env`          | Custom environment variables to pass to Claude Code execution (YAML format)                                          | No       | ""        |
 
 \*Required when using direct Anthropic API (default and when not using Bedrock, Vertex, or OAuth)
 
 > **Note**: This action is currently in beta. Features and APIs may change as we continue to improve the integration.
+
+### Using Custom MCP Configuration
+
+The `mcp_config` input allows you to add custom MCP (Model Context Protocol) servers to extend Claude's capabilities. These servers merge with the built-in GitHub MCP servers.
+
+#### Basic Example: Adding a Sequential Thinking Server
+
+```yaml
+- uses: anthropics/claude-code-action@beta
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    mcp_config: |
+      {
+        "mcpServers": {
+          "sequential-thinking": {
+            "command": "npx",
+            "args": [
+              "-y",
+              "@modelcontextprotocol/server-sequential-thinking"
+            ]
+          }
+        }
+      }
+    allowed_tools: "mcp__sequential-thinking__sequentialthinking" # Important: Each MCP tool from your server must be listed here, comma-separated
+    # ... other inputs
+```
+
+#### Passing Secrets to MCP Servers
+
+For MCP servers that require sensitive information like API keys or tokens, use GitHub Secrets in the environment variables:
+
+```yaml
+- uses: anthropics/claude-code-action@beta
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    mcp_config: |
+      {
+        "mcpServers": {
+          "custom-api-server": {
+            "command": "npx",
+            "args": ["-y", "@example/api-server"],
+            "env": {
+              "API_KEY": "${{ secrets.CUSTOM_API_KEY }}",
+              "BASE_URL": "https://api.example.com"
+            }
+          }
+        }
+      }
+    # ... other inputs
+```
+
+#### Using Python MCP Servers with uv
+
+For Python-based MCP servers managed with `uv`, you need to specify the directory containing your server:
+
+```yaml
+- uses: anthropics/claude-code-action@beta
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    mcp_config: |
+      {
+        "mcpServers": {
+          "my-python-server": {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+              "--directory",
+              "${{ github.workspace }}/path/to/server/",
+              "run",
+              "server_file.py"
+            ]
+          }
+        }
+      }
+    allowed_tools: "my-python-server__<tool_name>" # Replace <tool_name> with your server's tool names
+    # ... other inputs
+```
+
+For example, if your Python MCP server is at `mcp_servers/weather.py`, you would use:
+
+```yaml
+"args":
+  ["--directory", "${{ github.workspace }}/mcp_servers/", "run", "weather.py"]
+```
+
+**Important**:
+
+- Always use GitHub Secrets (`${{ secrets.SECRET_NAME }}`) for sensitive values like API keys, tokens, or passwords. Never hardcode secrets directly in the workflow file.
+- Your custom servers will override any built-in servers with the same name.
 
 ## Examples
 
@@ -194,7 +309,7 @@ on:
       - "src/api/**/*.ts"
 
 steps:
-  - uses: Akira-Papa/claude-code-action@beta
+  - uses: grll/claude-code-action@beta  # Fork with OAuth support
     with:
       direct_prompt: |
         Update the API documentation in README.md to reflect
@@ -218,7 +333,7 @@ jobs:
       github.event.pull_request.user.login == 'developer1' ||
       github.event.pull_request.user.login == 'external-contributor'
     steps:
-      - uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+      - uses: grll/claude-code-action@beta  # Fork with OAuth support
         with:
           direct_prompt: |
             Please provide a thorough review of this pull request.
@@ -236,7 +351,7 @@ Perfect for automatically reviewing PRs from new team members, external contribu
 4. **Branch Management**: Creates new PRs for human authors, pushes directly for Claude's own PRs
 5. **Communication**: Posts updates at every step to keep you informed
 
-This action is built on top of [`Akira-Papa/claude-code-base-action`](https://github.com/Akira-Papa/claude-code-base-action).
+This action is built on top of [`anthropics/claude-code-base-action`](https://github.com/anthropics/claude-code-base-action).
 
 ## Capabilities and Limitations
 
@@ -264,6 +379,40 @@ This action is built on top of [`Akira-Papa/claude-code-base-action`](https://gi
 
 ## Advanced Configuration
 
+### Custom Environment Variables
+
+You can pass custom environment variables to Claude Code execution using the `claude_env` input. This is useful for CI/test setups that require specific environment variables:
+
+```yaml
+- uses: anthropics/claude-code-action@beta
+  with:
+    claude_env: |
+      NODE_ENV: test
+      CI: true
+      DATABASE_URL: postgres://test:test@localhost:5432/test_db
+    # ... other inputs
+```
+
+The `claude_env` input accepts YAML format where each line defines a key-value pair. These environment variables will be available to Claude Code during execution, allowing it to run tests, build processes, or other commands that depend on specific environment configurations.
+
+### Limiting Conversation Turns
+
+You can use the `max_turns` parameter to limit the number of back-and-forth exchanges Claude can have during task execution. This is useful for:
+
+- Controlling costs by preventing runaway conversations
+- Setting time boundaries for automated workflows
+- Ensuring predictable behavior in CI/CD pipelines
+
+```yaml
+- uses: anthropics/claude-code-action@beta
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    max_turns: "5" # Limit to 5 conversation turns
+    # ... other inputs
+```
+
+When the turn limit is reached, Claude will stop execution gracefully. Choose a value that gives Claude enough turns to complete typical tasks while preventing excessive usage.
+
 ### Custom Tools
 
 By default, Claude only has access to:
@@ -277,10 +426,17 @@ Claude does **not** have access to execute arbitrary Bash commands by default. I
 **Note**: If your repository has a `.mcp.json` file in the root directory, Claude will automatically detect and use the MCP server tools defined there. However, these tools still need to be explicitly allowed via the `allowed_tools` configuration.
 
 ```yaml
-- uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+- uses: grll/claude-code-action@beta  # Fork with OAuth support
   with:
-    allowed_tools: "Bash(npm install),Bash(npm run test),Edit,Replace,NotebookEditCell"
-    disallowed_tools: "TaskOutput,KillTask"
+    allowed_tools: |
+      Bash(npm install)
+      Bash(npm run test)
+      Edit
+      Replace
+      NotebookEditCell
+    disallowed_tools: |
+      TaskOutput
+      KillTask
     # ... other inputs
 ```
 
@@ -291,7 +447,7 @@ Claude does **not** have access to execute arbitrary Bash commands by default. I
 Use a specific Claude model:
 
 ```yaml
-- uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+- uses: grll/claude-code-action@beta  # Fork with OAuth support
   with:
     # model: "claude-3-5-sonnet-20241022"  # Optional: specify a different model
     # ... other inputs
@@ -320,13 +476,13 @@ Use provider-specific model names based on your chosen provider:
 
 ```yaml
 # For direct Anthropic API (default)
-- uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+- uses: grll/claude-code-action@beta  # Fork with OAuth support
   with:
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
     # ... other inputs
 
 # For OAuth authentication (Claude Max subscribers)
-- uses: Akira-Papa/claude-code-action@beta
+- uses: grll/claude-code-action@beta
   with:
     use_oauth: "true"
     claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
@@ -335,14 +491,14 @@ Use provider-specific model names based on your chosen provider:
     # ... other inputs
 
 # For Amazon Bedrock with OIDC
-- uses: Akira-Papa/claude-code-action@beta
+- uses: grll/claude-code-action@beta
   with:
-    model: "anthropic.claude-3-7-sonnet-20250219-beta:0"
+    model: "anthropic.claude-3-7-sonnet-20250219-beta:0" # Cross-region inference
     use_bedrock: "true"
     # ... other inputs
 
 # For Google Vertex AI with OIDC
-- uses: Akira-Papa/claude-code-action@beta
+- uses: grll/claude-code-action@beta
   with:
     model: "claude-3-7-sonnet@20250219"
     use_vertex: "true"
@@ -368,7 +524,7 @@ Both AWS Bedrock and GCP Vertex AI require OIDC authentication.
     app-id: ${{ secrets.APP_ID }}
     private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-- uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+- uses: grll/claude-code-action@beta  # Fork with OAuth support
   with:
     model: "anthropic.claude-3-7-sonnet-20250219-beta:0"
     use_bedrock: "true"
@@ -393,7 +549,7 @@ Both AWS Bedrock and GCP Vertex AI require OIDC authentication.
     app-id: ${{ secrets.APP_ID }}
     private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-- uses: Akira-Papa/claude-code-action@beta  # Fork with OAuth support
+- uses: grll/claude-code-action@beta  # Fork with OAuth support
   with:
     model: "claude-3-7-sonnet@20250219"
     use_vertex: "true"
@@ -491,7 +647,7 @@ anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 This applies to all sensitive values including API keys, access tokens, and credentials.
-We also reccomend that you always use short-lived tokens when possible
+We also recommend that you always use short-lived tokens when possible
 
 ## License
 

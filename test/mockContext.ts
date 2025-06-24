@@ -11,8 +11,8 @@ const defaultInputs = {
   triggerPhrase: "/claude",
   assigneeTrigger: "",
   anthropicModel: "claude-3-7-sonnet-20250219",
-  allowedTools: "",
-  disallowedTools: "",
+  allowedTools: [] as string[],
+  disallowedTools: [] as string[],
   customInstructions: "",
   directPrompt: "",
   useBedrock: false,
@@ -91,6 +91,12 @@ export const mockIssueAssignedContext: ParsedGitHubContext = {
   actor: "admin-user",
   payload: {
     action: "assigned",
+    assignee: {
+      login: "claude-bot",
+      id: 11111,
+      avatar_url: "https://avatars.githubusercontent.com/u/11111",
+      html_url: "https://github.com/claude-bot",
+    },
     issue: {
       number: 123,
       title: "Feature: Add dark mode support",
