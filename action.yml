@@ -126,7 +126,7 @@ runs:
     - name: Run Claude Code
       id: claude-code
       if: steps.prepare.outputs.contains_trigger == 'true'
-      uses: yutasasaki/claude-code-base-action@main
+      uses: grll/claude-code-base-action@83c1d87085aace6d7d9334e7f2be763049fd54da # OAuth support fix
       with:
         prompt_file: ${{ runner.temp }}/claude-prompts/claude-prompt.txt
         allowed_tools: ${{ env.ALLOWED_TOOLS }}
